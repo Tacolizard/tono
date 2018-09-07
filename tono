@@ -12,7 +12,7 @@ init()
 debug = False
 currentTodo = (
     "/home/taco/.tono/todo.json"
-)  # file for all items the user wants displayed
+)  # json file to store the todo list. change this to wherever your todo list is
 header = """\
 ------------------------------ 
              TODO             
