@@ -1,0 +1,263 @@
+#!/usr/bin/env python3
+
+import argparse
+import json
+import sys
+import time
+from colorama import init, Fore, Back, Style
+
+init()
+
+# constants
+debug = False
+currentTodo = (
+    "/home/taco/.tono/todo.json"
+)  # file for all items the user wants displayed
+header = """\
+------------------------------ 
+             TODO             
+------------------------------"""
+
+
+def file_to_json(filepath):
+    f = open(filepath, "r")
+    fileJson = json.load(f)
+    f.close()
+    dprint(fileJson, "file_to_json")
+    return fileJson
+
+
+def write_string(instr, filepath):  # function to write a string to a file
+    f = open(filepath, "w")
+    f.write(instr)
+    f.close()
+
+
+def get_item(itemnum, filepath):  # helper to get a specific item from a file
+    fileJson = file_to_json(filepath)
+    return fileJson[itemnum]
+
+
+def add_item(item, filepath):  # function to add a json item to a json file
+    currentJson = file_to_json(filepath)
+    currentJson.append(item)
+    strJson = json.dumps(currentJson)
+    write_string(strJson, filepath)
+
+
+def color_str(color, instr):  # helper to create a colored string
+    return color + instr + Style.RESET_ALL
+
+
+def print_color(color, instr):  # helper for printing single strings in color
+    print(color_str(color, instr))
+
+
+def dprint(instr, label="generic"):  # print a yellow debug message if debug==True
+    if debug == True:
+        debugStr = color_str(Fore.YELLOW, "DEBUG;")
+        fullStr = "{} '{}': {}".format(debugStr, label, instr)
+        print(fullStr)
+
+
+def print_err(err):
+    errStr = color_str(Fore.RED, "ERROR:")
+    fullStr = "{} {}".format(errStr, err)
+    print(fullStr, file=sys.stderr)
+    quit(1)
+
+
+def print_todo_item(
+    item, i, timestamps
+):  # print an individual item with some formatting
+    checkbox = "[ ]"
+    if item.get("complete") == True:
+        checkbox = "[X]"
+    due = ""
+    if item.get("due"):
+        due = color_str(Fore.RED, "|DUE ON: {}|".format(item["due"]))
+    message = item.get("message")
+
+    timestamp = ""
+    if timestamps and item.get("timestamp"):
+        timestamp = "({})".format(item.get("timestamp"))
+    fullStr = "{} {}. {} {} {}".format(checkbox, i, timestamp, message, due)
+
+    print(fullStr)
+
+
+def print_todo(data, all, timestamps):
+    print(header)
+    i = 0
+    for item in data:
+        if all or item["complete"] == False:
+            print_todo_item(item, i, timestamps)
+            i = i + 1
+
+
+def ninput(prompt):  # get input, return None if input is ''
+    result = input(prompt + ": ")
+    if result == "" or result == " ":
+        result = None
+    dprint(result, prompt)
+    return result
+
+
+def defaulting_input(
+    prompt, default
+):  # helper to get input, but replace with a default value if input is empty
+    result = ninput(prompt)
+    if result != None:
+        return result
+    return default
+
+
+def yes_or_no(prompt, default="y"):  # helper to use a Y/n style prompt
+    promptStr = prompt + " [Y/n]"
+    default_input = "y"
+    if default != "y" and default != "n":
+        print_err("Invalid Y/n prompt default")
+    elif default == "n":
+        promptStr = prompt + " [y/N]"
+        default_input = "n"
+    result = defaulting_input(promptStr, default_input)
+    if result == "y" or result == "Y":
+        return True
+    else:
+        return False
+
+
+def req_input(prompt):  # helper for required interactive input fields
+    result = ninput(prompt + " (required)")
+    if not result:
+        print_err("You must fill out required fields.")
+    return result
+
+
+def create_item():
+    print_color(
+        Fore.GREEN, "You may opt out of a field by pressing Enter with no input."
+    )
+    message = req_input("todo message")
+    due = ninput("Due date")
+    timestamp = time.asctime()
+
+    currentJson = file_to_json(currentTodo)
+    item = {"message": message, "complete": False, "due": due, "timestamp": timestamp}
+    dprint(item, "created item")
+    currentJson.append(item)
+    dprint(currentJson, "appended")
+
+    add_item(item, currentTodo)
+    print_color(Fore.GREEN, "Done.")
+
+
+def toggle_mark(itemnum):
+    localJson = file_to_json(currentTodo)
+    localJson[itemnum]["complete"] = not localJson[itemnum]["complete"]
+    dprint(localJson[itemnum], "toggled item")
+    strJson = json.dumps(localJson)
+    write_string(strJson, currentTodo)
+
+
+def delete_item(itemnum, filepath):  # function to directly delete an item
+    localJson = file_to_json(filepath)
+    localJson.pop(itemnum)
+    strJson = json.dumps(localJson)
+    write_string(strJson, filepath)
+
+
+def user_delete_item(itemnum):  # function to delete an item and ask for confirmation
+    confirmationStr = "This command will permanantly delete item #{}, {} from your todo list. Are you sure?".format(
+        itemnum, get_item(itemnum, currentTodo)
+    )
+    if yes_or_no(confirmationStr):
+        delete_item(itemnum, currentTodo)
+    else:
+        print("Operation aborted.")
+
+
+def delete_marked():  # delete all marked todo items
+    if not yes_or_no(
+        "This will permanantly delete all marked (checked off) items. Are you sure?"
+    ):
+        print("Operation aborted.")
+        return
+    localJson = file_to_json(currentTodo)
+    for item in localJson:
+        if item["complete"] == True:
+            delete_item(localJson.index(item), currentTodo)
+
+
+def delete_all():  # delete all todo items
+    if not yes_or_no("This will permanantly delete ALL TODO ITEMS. Are you sure?"):
+        print("Operation aborted.")
+        return
+    localJson = file_to_json(currentTodo)
+    i = 0
+    for item in localJson:
+        delete_item(i, currentTodo)
+
+
+argParser = argparse.ArgumentParser(
+    description="Take notes, write todo lists, and manage deadlines"
+)
+argParser.add_argument(
+    "-a",
+    "--all",
+    action="store_true",
+    help="show all todo items, including completed ones",
+)
+argParser.add_argument(
+    "-t",
+    "--timestamps",
+    action="store_true",
+    help="print creation timestamps for each todo item",
+)
+argParser.add_argument(
+    "-c",
+    "--create",
+    action="store_true",
+    help="interactively create and add a message to the todo list.",
+)
+argParser.add_argument(
+    "-m",
+    "--mark",
+    type=int,
+    nargs="+",
+    help="toggle the completion state of one or more todo items",
+)
+argParser.add_argument(
+    "-d", "--delete", type=int, help="permanantly delete a single todo item"
+)
+argParser.add_argument(
+    "-p", "--purge", action="store_true", help="delete all marked todo items"
+)
+argParser.add_argument(
+    "-P",
+    "--fullpurge",
+    action="store_true",
+    help="delete ALL todo items, marked or not",
+)
+
+
+args = argParser.parse_args()  # parse arguments
+showAll = args.all
+
+if args.fullpurge:
+    delete_all()
+    quit()
+if args.create:  # create and write a todo item
+    create_item()
+if args.mark:
+    for target in args.mark:
+        toggle_mark(target)
+    showAll = True  # always show all after marking something
+if args.delete:
+    user_delete_item(args.delete)
+if args.purge:
+    delete_marked()
+
+print_todo(
+    file_to_json(currentTodo), True, args.timestamps
+)  # print out todo list if no conflicting args are supplied
